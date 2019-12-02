@@ -1,6 +1,6 @@
 {
     "python.pythonPath": "/usr/bin/python3",
     "python.venvFolders": [
-        "/home/jeevan/Flask_App/bin/python3"
+        "/home/jeevan/Flask_App/bin/python3",
     ]
 }

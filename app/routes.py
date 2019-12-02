@@ -1,8 +1,11 @@
 from flask import render_template, url_for, flash, redirect, request
 from app import app, db, bcrypt
-from app.forms import RegForm, LoginForm
+from app.forms import RegForm, LoginForm, UpdateAccForm
 from app.models import User, Post
 from flask_login import login_user, current_user, logout_user, login_required
+import secrets
+import os
+from PIL import Image
 
 posts = [
     {
@@ -64,10 +67,49 @@ def logout():
     logout_user()
     return redirect(url_for('home'))
 
-@app.route("/account")
+def savePicture(formPic):
+    randomHex = secrets.token_hex(8)
+    _, fext = os.path.splitext(formPic.filename)
+    pictureFname = randomHex + fext
+    picturePath = os.path.join(app.root_path, 'static/profile_pics', pictureFname)
+
+    output_size = (800, 800)
+
+    i = Image.open(formPic)
+    width, height = i.size   # Get dimensions
+    new_width = 800
+    new_height = 800
+    
+    left = (width - new_width)/2
+    top = (height - new_height)/2
+    right = (width + new_width)/2
+    bottom = (height + new_height)/2
+
+    # Crop the center of the image
+    i = i.crop((left, top, right, bottom))
+    i.thumbnail(output_size)
+
+    i.save(picturePath)
+    return pictureFname
+
+@app.route("/account", methods=['GET', 'POST'])
 @login_required
 def account():
-    return render_template('account.html', title = 'Account')
+    form = UpdateAccForm()
+    if form.validate_on_submit():
+        if form.picture.data:
+            pictureFile = savePicture(form.picture.data)
+            current_user.image = pictureFile
+        current_user.username = form.username.data
+        current_user.email = form.email.data
+        db.session.commit()
+        flash('Account information updated.', 'success')
+        return redirect(url_for('account'))
+    elif request.method == 'GET':
+        form.username.data = current_user.username 
+        form.email.data = current_user.email  
+    imageFile = url_for('static', filename = 'profile_pics/' + current_user.image)
+    return render_template('account.html', title = 'Account', imageFile = imageFile, form = form)
 
 # @app.route("/<name>")
 # def helloName(name):
