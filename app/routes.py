@@ -1,12 +1,12 @@
 from flask import render_template, url_for, flash, redirect, request, abort
-from app import app, db, bcrypt
-from app.forms import RegForm, LoginForm, UpdateAccForm, PostForm
+from app import app, db, bcrypt, mail
+from app.forms import RegForm, LoginForm, UpdateAccForm, PostForm, ReqResetForm, RessetPasswordForm
 from app.models import User, Post
 from flask_login import login_user, current_user, logout_user, login_required
 import secrets
 import os
 from PIL import Image
-
+from flask_mail import Message
 # posts = [
 #     {
 #         'author': 'Jeevan',
@@ -25,7 +25,9 @@ from PIL import Image
 @app.route("/")
 @app.route("/home")
 def home():
-    posts = Post.query.all()
+    # posts = Post.query.all()
+    page = request.args.get('page', 1, type=int)
+    posts = Post.query.order_by(Post.date_posted.desc()).paginate(page=page, per_page=5)
     return render_template('home.html', posts = posts)
 
 @app.route("/about")
@@ -122,13 +124,14 @@ def newPost():
         db.session.commit()
         flash('Post uploaded.', 'success')
         return redirect(url_for('home'))
-    return render_template('createPost.html', title = 'New post', legend = 'New post', form = form)
+    return render_template('createPost.html', title = '+ Post', legend = 'New post', form = form)
 
 
 @app.route("/post/<int:postId>", methods=['GET', 'POST'])
 @login_required
 def post(postId):
-    post = Post.query.get_or_404(postId)
+    post = Post.query.get_or_404(
+        postId)
     return render_template('post.html', title=post.title, post=post)
 
 @app.route("/post/<int:postId>/update", methods=['GET', 'POST'])
@@ -160,6 +163,57 @@ def deletePost(postId):
     db.session.commit()
     flash('Post deleted.', 'success')
     return redirect(url_for('home'))
+
+@app.route("/user/<string:username>")
+def userPosts(username):
+    # posts = Post.query.all()
+    page = request.args.get('page', 1, type=int)
+    user = User.query.filter_by(username=username).first_or_404()
+    posts = Post.query.filter_by(author=user).order_by(Post.date_posted.desc()).paginate(page=page, per_page=5)
+    return render_template('userposts.html', user = user, posts = posts)
+
+def sendResetEmail(user):
+    token = user.getResetToken()
+    msg = Message('Password reset request', sender='noreply@demo.com', recipients=[user.email])
+    msg.body = f'''
+To reset your password visit
+
+{ url_for('resetToken', token=token, _external= True) }
+
+Ignore if you didn't request the above.
+'''
+    mail.send(msg)
+
+
+@app.route("/resetPassword", methods=['GET', 'POST'])
+def resetReq():
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    form = ReqResetForm()
+    if form.validate_on_submit():
+        user = User.query.filter_by(email = form.email.data).first()
+        sendResetEmail(user)
+        flash('Email sent for resetting password.', 'info')
+        return redirect(url_for('login'))
+    return render_template('resetRequest.html', title = 'Reset password', form = form)
+
+
+@app.route("/resetPassword/<token>", methods=['GET', 'POST'])
+def resetToken(token):
+    if current_user.is_authenticated:
+        return redirect(url_for('home'))
+    user = User.verifyResetToken(token)
+    if user is None:
+        flash('Invalid or expired token.', 'warning')
+        return redirect(url_for('resetReq'))
+    form = RessetPasswordForm()
+    if form.validate_on_submit():
+        hashedPwd = bcrypt.generate_password_hash(form.password.data).decode('utf-8')
+        user.password = hashedPwd
+        db.session.commit()
+        flash(f'Password changed successfully!', 'success')
+        return redirect(url_for('login'))
+    return render_template('resetToken.html', title = 'Reset password', form = form)
 
 # @app.route("/<name>")
 # def helloName(name):
